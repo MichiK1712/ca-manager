@@ -26,6 +26,7 @@
     <a href="#certs" class="nav-link">Zertifikate</a>
     <a href="#issue" class="nav-link">Ausstellen</a>
     <a href="#ssh" class="nav-link">SSH-CA</a>
+    <a href="#howto" class="nav-link">Anleitungen</a>
   </nav>
 
   <div class="content" id="dash-body">
@@ -207,6 +208,92 @@
         </tbody>
       </table>
       {% endif %}
+    </section>
+
+    <!-- ==== ANLEITUNGEN ==== -->
+    <section id="howto" class="card">
+      <h2>Anleitungen</h2>
+      <p class="muted">Schritt-für-Schritt für jeden Zertifikatstyp.</p>
+
+      <details class="howto">
+        <summary>Root-CA vertrauen (alle Certs gültig)</summary>
+        <ol>
+          <li>Im Bereich <b>Root-CAs</b> → <b>Download</b> klicken (bekommst die <code>.crt</code>).</li>
+          <li>Auf dem Rechner dem OS bzw. Browser vertrauen:</li>
+        </ol>
+        <pre><code># Debian/Ubuntu
+sudo cp root.crt /usr/local/share/ca-certificates/root.crt
+sudo update-ca-certificates
+
+# RHEL/Fedora/CentOS
+sudo cp root.crt /etc/pki/ca-trust/source/anchors/
+sudo update-ca-trust</code></pre>
+      </details>
+
+      <details class="howto">
+        <summary>Server-Zertifikat in nginx verwenden</summary>
+        <ol>
+          <li>Zertifikat ausstellen (Typ <b>Server</b>, CN = Domain, SANs = alle Domains/IPs).</li>
+          <li>Rechts <code>.crt</code> (Zertifikat), <code>.key</code> (Key) und <code>fullchain</code> (cert + CA) laden, nach <code>/etc/nginx/ssl/</code> kopieren.</li>
+        </ol>
+        <pre><code>server {
+  listen 443 ssl;
+  ssl_certificate     /etc/nginx/ssl/nas.local.crt;
+  ssl_certificate_key /etc/nginx/ssl/nas.local.key;
+}</code></pre>
+        <p>Für <code>fullchain.pem</code> (falls Client die CA nicht kennt): <code>ssl_certificate /etc/nginx/ssl/nas.local.fullchain.pem;</code></p>
+      </details>
+
+      <details class="howto">
+        <summary>mTLS / Client-Zertifikat in nginx</summary>
+        <ol>
+          <li>Zertifikat ausstellen (Typ <b>Client</b>, CN = Benutzername).</li>
+          <li>Root-CA <code>.crt</code> als Vertrauensanker auf den Server legen.</li>
+          <li>Client bekommt <code>.crt</code> + <code>.key</code> (oder <code>p12</code> für Browser).</li>
+        </ol>
+        <pre><code>server {
+  ssl_client_certificate /etc/nginx/ssl/root-ca.crt;
+  ssl_verify_client on;
+}</code></pre>
+      </details>
+
+      <details class="howto">
+        <summary>SSH-CA — Server einrichten (User-Login)</summary>
+        <ol>
+          <li>Im Bereich <b>SSH-CA</b> eine SSH-CA anlegen (z.B. <code>Home SSH CA</code>).</li>
+          <li><b>Public Key</b> laden → als <code>/etc/ssh/ssh-ca.pub</code> auf den Server legen.</li>
+          <li>In <code>/etc/ssh/sshd_config</code> eintragen und sshd neu laden.</li>
+        </ol>
+        <pre><code># /etc/ssh/sshd_config
+TrustedUserCAKeys /etc/ssh/ssh-ca.pub</code></pre>
+        <pre><code>sudo systemctl reload sshd</code></pre>
+      </details>
+
+      <details class="howto">
+        <summary>SSH-CA — Client-Zertifikat nutzen</summary>
+        <ol>
+          <li>Client erzeugt sich ein Schlüsselpaar (falls noch nicht vorhanden).</li>
+          <li>Public Key-Inhalt an dich (Admin).</li>
+          <li>Du signierst ihn im Bereich <b>SSH-CA → Zertifikat signieren</b> (Typ <b>User</b>, Principals = Usernames).</li>
+          <li>Client lädt die <code>*-cert.pub</code> und legt sie neben seinen privaten Key.</li>
+        </ol>
+        <pre><code># auf dem Client
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519   # einmalig
+# signiertes cert.pub neben den Key legen:
+#   ~/.ssh/id_ed25519-cert.pub</code></pre>
+        <p>Beim Login wird die Identität jetzt über den CA verifiziert — ablauf- und widerrufbar, kein Passwort nötig.</p>
+      </details>
+
+      <details class="howto">
+        <summary>SSH-CA — Host-Zertifikat (Host-Auth)</summary>
+        <ol>
+          <li>Public Key des Hosts (<code>/etc/ssh/ssh_host_*_key.pub</code>) holen.</li>
+          <li>Im Bereich <b>SSH-CA → Zertifikat signieren</b>: Typ <b>Host</b>, Principals = Hostnamen + IPs.</li>
+          <li>Download als <code>/etc/ssh/ssh_host_ed25519_key-cert.pub</code> ablegen.</li>
+          <li>In <code>/etc/ssh/sshd_config</code> referenzieren.</li>
+        </ol>
+        <pre><code>HostCertificate /etc/ssh/ssh_host_ed25519_key-cert.pub</code></pre>
+      </details>
     </section>
   </div>
 </main>

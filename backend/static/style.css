@@ -161,6 +161,39 @@ h2 { font-size: 1.2rem; margin: 0 0 12px; }
 }
 .result { margin-top: 12px; }
 
+.howto {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  background: var(--bg-2);
+}
+.howto summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text);
+  user-select: none;
+}
+.howto ol { margin: 10px 0 8px 20px; }
+.howto li { margin-bottom: 4px; }
+.howto pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.howto code {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.85rem;
+  color: var(--text);
+}
+.howto pre code {
+  display: block;
+  white-space: pre;
+}
+
 .search {
   width: 100%;
   max-width: 360px;
