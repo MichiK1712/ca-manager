@@ -19,3 +19,20 @@
     <button class="btn" type="submit">Erstellen</button>
   </form>
 </div>
+
+<div class="inline-form">
+  <h3>Externe Root-CA importieren</h3>
+  <p class="muted">Ein bestehendes Zertifikat (PEM) als Root einspielen. Ohne privaten Key nur als Vertrauensanker (Ansicht/Download), mit Key auch zum Signieren.</p>
+  <form hx-post="/api/roots/import" hx-target="#dash-body" hx-swap="innerHTML" class="form-grid">
+    <label>Name
+      <input name="name" placeholder="Meine CA (leer = aus Cert übernehmen)">
+    </label>
+    <label>Zertifikat (PEM)
+      <textarea name="cert_pem" rows="5" placeholder="-----BEGIN CERTIFICATE-----" required></textarea>
+    </label>
+    <label>Privater Key (PEM, optional)
+      <textarea name="key_pem" rows="5" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+    </label>
+    <button class="btn" type="submit">Importieren</button>
+  </form>
+</div>

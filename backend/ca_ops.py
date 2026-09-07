@@ -97,6 +97,89 @@ def root_cert(root_id: str) -> str:
         return f.read()
 
 
+def import_root(name: str, cert_pem: str, key_pem: str | None = None,
+                created_by: str = "") -> dict[str, Any]:
+    """Import an external X.509 certificate (PEM) as a Root-CA entry.
+
+    ``cert_pem`` must contain a single CA certificate (PEM). Optionally pass
+    ``key_pem`` (private key, PEM) to enable signing with this root. Without
+    the key the root is a trust anchor only (view + download, no issuing).
+
+    The key is re-encrypted with the CA passphrase before being stored.
+    """
+    # Validate the certificate and parse metadata before storing.
+    root_id = uuid.uuid4().hex[:12]
+    d = _root_dir(root_id)
+    cert_path = os.path.join(d, "ca.pem")
+
+    with open(cert_path, "w") as f:
+        f.write(cert_pem.strip() + "\n")
+
+    try:
+        # Confirm it is a CA certificate with keyCertSign.
+        _run(["x509", "-in", cert_path, "-noout", "-text"])
+        serial = _serial_of(cert_path)
+        not_after = _not_after(cert_path)
+        subject = _subject_cn(cert_path)
+    except RuntimeError as e:
+        import shutil
+        shutil.rmtree(d, ignore_errors=True)
+        raise RuntimeError(f"Ungültiges Zertifikat: {e}")
+
+    has_key = bool(key_pem and key_pem.strip())
+    key_size = None
+    if has_key:
+        key_path = os.path.join(d, "ca-key.pem")
+        with open(key_path, "w") as f:
+            f.write(key_pem.strip() + "\n")
+        passfile = _passfile()
+        try:
+            _run(["rsa", "-in", key_path, "-passin", "pass:",
+                  "-aes256", "-passout", f"file:{passfile}", "-out", key_path + ".enc"])
+            os.replace(key_path + ".enc", key_path)
+        except RuntimeError:
+            # Could be an EC key; normalize with ec as fallback.
+            os.remove(key_path + ".enc") if os.path.exists(key_path + ".enc") else None
+            _run(["ec", "-in", key_path, "-passin", "pass:",
+                  "-aes256", "-passout", f"file:{passfile}", "-out", key_path + ".enc"])
+            os.replace(key_path + ".enc", key_path)
+        finally:
+            os.unlink(passfile)
+        key_size = len(_run(["x509", "-in", cert_path, "-noout", "-text"]))
+
+    root = {
+        "id": root_id,
+        "name": name or (subject or "Imported CA"),
+        "org": "",
+        "serial": serial,
+        "not_after": not_after,
+        "status": "active",
+        "key_type": "imported",
+        "imported": True,
+        "has_key": has_key,
+        "created_by": created_by,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    storage.add_root(root)
+    storage.log_audit({"action": "root_imported", "root_id": root_id,
+                       "name": root["name"], "has_key": has_key, "by": created_by})
+    return root
+
+
+def _subject_cn(cert_path: str) -> str:
+    out = _run(["x509", "-in", cert_path, "-noout", "-subject"])
+    subj = out.strip()
+    # Form: "subject=CN = Foo, O = Bar" (openssl 3.x)
+    subj = subj.split("=", 1)[-1].strip() if subj.startswith("subject") else subj
+    for part in subj.split(","):
+        k, _, v = part.strip().partition(" = ")
+        if k == "CN" and v:
+            return v
+        if k == "CN":
+            return part.strip().split("=")[-1].strip()
+    return subj
+
+
 def renew_root(root_id: str, days: int = 3650) -> dict[str, Any]:
     """Rotate: issue a new self-signed cert for the existing root key."""
     d = _root_dir(root_id)

@@ -155,6 +155,23 @@ async def api_create_root(request: Request, user=Depends(require_user)):
     return JSONResponse(root)
 
 
+@app.post("/api/roots/import")
+async def api_import_root(request: Request, user=Depends(require_user)):
+    body = await parse_body(request)
+    try:
+        root = ca_ops.import_root(
+            name=body.get("name", ""),
+            cert_pem=body["cert_pem"],
+            key_pem=body.get("key_pem") or None,
+            created_by=user_label(user),
+        )
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    if request.headers.get("HX-Request"):
+        return _render_dashboard(request, user)
+    return JSONResponse(root)
+
+
 @app.get("/api/roots/{root_id}/cert")
 async def api_root_cert(root_id: str, user=Depends(require_user)):
     pem = ca_ops.root_cert(root_id)
