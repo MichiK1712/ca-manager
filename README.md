@@ -11,7 +11,7 @@ Siehe **[PROTOCOL.md](./PROTOCOL.md)** für die vollständige Architektur.
 | Schicht | Software |
 |---------|----------|
 | Identity | Authentik (extern, `idp.mkubalek.eu`) |
-| CA-Engine | CFSSL `multirootca` |
+| CA-Engine | openssl (im Backend) |
 | Web-UI | FastAPI + HTMX + Tailwind-like CSS (Dark-Theme) |
 | Erneuerung | Python-Scheduler (Renewal-Agent) + E-Mail via externem SMTP |
 
@@ -41,6 +41,6 @@ Root-Zertifikat (`<root-id>_ca.crt`) aus dem UI herunterladen und installieren:
 ```bash
 cd backend
 pip install -r requirements.txt
-export CA_DATA_DIR=./data CFSSL_URL=http://localhost:8888 SECRET_KEY=dev
+export CA_DATA_DIR=./data SECRET_KEY=dev
 uvicorn main:app --reload --port 8080
 ```

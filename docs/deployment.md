@@ -30,7 +30,7 @@ auf dem Host, damit entfällt der „Build-Worker/HTTP2"-Fehler.
    - Secrets (SMTP-Passwort, OIDC-Client-Secret, `SECRET_KEY`, `CA_KEY_PASSPHRASE`)
      als **Portainer Secrets** oder Env-Vars — nie im Klartext.
 
-3. **Deploy** → Container `ca-cfssl`, `ca-ui`, `ca-renewer` starten.
+3. **Deploy** → Container `ca-ui`, `ca-renewer` starten.
 
 ### Wichtige Env-Vars
 
@@ -56,5 +56,4 @@ auf dem Host, damit entfällt der „Build-Worker/HTTP2"-Fehler.
 ## Healthchecks
 
 - `ca-ui` → `/healthz`
-- `ca-cfssl` → `cfssl info`
 - Nach dem Deploy prüfen, ob alle Container `healthy` sind.

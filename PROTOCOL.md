@@ -25,9 +25,9 @@ verwalten, erneuern und widerrufen — bequem über eine Oberfläche, ohne CLI.
 │      │ 2. Session/Token                                 │
 │      ▼                                                  │
 │  CA-UI (FastAPI)  ── NPM: ca.kubalek.local              │
-│      │ 3. Admin-API                                     │
+│      │ (openssl: signieren, revoken, PKCS#12)          │
 │      ▼                                                  │
-│  CFSSL multirootca (Signieren, Revoken)                 │
+│  Multi-Root CA (Roots 1..3)                            │
 │      │                                                  │
 │      ├── Root-CA 1 (z.B. "Home")                        │
 │      ├── Root-CA 2 (z.B. "Services")                    │
@@ -41,7 +41,7 @@ verwalten, erneuern und widerrufen — bequem über eine Oberfläche, ohne CLI.
 | Schicht | Software | Funktion |
 |---------|----------|----------|
 | Identity | Authentik (extern) | OIDC-Login + RBAC (Gruppen) |
-| CA-Engine | CFSSL `multirootca` | Multi-Root, Signieren, Revoke, CRL |
+| CA-Engine | openssl (im Backend) | Multi-Root, Signieren, Revoke |
 | Web-UI | FastAPI + HTMX + Tailwind | Bedienoberfläche |
 | Renewal | Python-Scheduler | Ablauf-Prüfung, Auto-Erneuerung, E-Mail-Warnung |
 

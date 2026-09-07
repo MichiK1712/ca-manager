@@ -15,7 +15,6 @@ class Settings:
     oidc_scope: str
 
     # CA
-    cfssl_url: str
     ca_data_dir: str
     ca_key_passphrase: str
 
@@ -48,7 +47,6 @@ def load_settings() -> Settings:
         oidc_redirect_uri=os.getenv("OIDC_REDIRECT_URI", "https://ca.kubalek.local/oidc/callback"),
         oidc_scope=os.getenv("OIDC_SCOPE", "openid profile email"),
 
-        cfssl_url=os.getenv("CFSSL_URL", "http://cfssl:8888"),
         ca_data_dir=os.getenv("CA_DATA_DIR", "/var/lib/ca"),
         ca_key_passphrase=os.getenv("CA_KEY_PASSPHRASE", ""),
 
