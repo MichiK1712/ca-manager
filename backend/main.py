@@ -12,7 +12,6 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import ca_ops, oidc
 from .config import settings
-from .config import settings
 from .oidc import require_user
 
 
@@ -24,6 +23,16 @@ async def parse_body(request: Request) -> dict:
     # form-encoded
     form = await request.form()
     return {k: v for k, v in form.items()}
+
+
+def user_label(user: dict) -> str:
+    """Human identifier for the authenticated user (for audit / created_by)."""
+    return (
+        user.get("preferred_username")
+        or user.get("email")
+        or user.get("name")
+        or user.get("sub", "")
+    )
 
 BASE = os.path.dirname(__file__)
 STATIC = os.path.join(BASE, "static")
@@ -38,6 +47,19 @@ app.add_middleware(
 )
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 tpl = Jinja2Templates(directory=TEMPLATES)
+
+
+def _render_dashboard(request: Request, user: dict) -> HTMLResponse:
+    """Render the full dashboard body (used on load + after mutations)."""
+    return tpl.TemplateResponse(request, "dashboard.html", {
+        "user": user,
+        "roots": ca_ops.list_roots(),
+        "certs": sorted(ca_ops.list_certs(), key=lambda c: c["not_after"], reverse=True),
+    })
+
+
+def _render_root_form(request: Request, user: dict) -> HTMLResponse:
+    return tpl.TemplateResponse(request, "root_form.html", {"user": user})
 
 
 # --- Auth routes ----------------------------------------------------------
@@ -108,10 +130,13 @@ async def api_create_root(request: Request, user=Depends(require_user)):
             days=int(body.get("days", 3650)),
             key_type=body.get("key_type", "rsa"),
             key_size=int(body.get("key_size", 4096)),
+            created_by=user_label(user),
         )
-        return root
     except Exception as e:
         raise HTTPException(400, str(e))
+    if request.headers.get("HX-Request"):
+        return _render_dashboard(request, user)
+    return JSONResponse(root)
 
 
 @app.get("/api/roots/{root_id}/cert")
@@ -122,14 +147,20 @@ async def api_root_cert(root_id: str, user=Depends(require_user)):
 
 
 @app.post("/api/roots/{root_id}/renew")
-async def api_renew_root(root_id: str, user=Depends(require_user)):
-    return ca_ops.renew_root(root_id)
+async def api_renew_root(request: Request, root_id: str, user=Depends(require_user)):
+    result = ca_ops.renew_root(root_id)
+    if request.headers.get("HX-Request"):
+        return _render_dashboard(request, user)
+    return JSONResponse(result)
 
 
 @app.post("/api/roots/{root_id}/revoke")
 async def api_revoke_root(request: Request, root_id: str, user=Depends(require_user)):
     body = await parse_body(request)
-    return ca_ops.revoke_root(root_id, body.get("reason", "unspecified"))
+    result = ca_ops.revoke_root(root_id, body.get("reason", "unspecified"))
+    if request.headers.get("HX-Request"):
+        return _render_dashboard(request, user)
+    return JSONResponse(result)
 
 
 @app.get("/api/certs")
@@ -143,15 +174,19 @@ async def api_issue(request: Request, user=Depends(require_user)):
     sans_raw = body.get("sans", "")
     sans = [s.strip() for s in str(sans_raw).split(",") if s.strip()]
     try:
-        return ca_ops.issue_cert(
+        rec = ca_ops.issue_cert(
             root_id=body["root_id"],
             cn=body["cn"],
             sans=sans,
             cert_type=body.get("cert_type", "server"),
             days=int(body.get("days", 365)),
+            created_by=user_label(user),
         )
     except Exception as e:
         raise HTTPException(400, str(e))
+    if request.headers.get("HX-Request"):
+        return _render_dashboard(request, user)
+    return JSONResponse(rec)
 
 
 @app.get("/api/certs/{serial}/pem")
@@ -161,6 +196,37 @@ async def api_cert_pem(serial: str, user=Depends(require_user)):
     body = cert + key
     return Response(content=body, media_type="application/x-pem-file",
                     headers={"Content-Disposition": f"attachment; filename={serial}.pem"})
+
+
+@app.get("/api/certs/{serial}/crt")
+async def api_cert_crt(serial: str, user=Depends(require_user)):
+    rec = next((c for c in ca_ops.list_certs() if c["serial"] == serial), None)
+    cert = ca_ops.get_cert_pem(serial)
+    name = rec["cn"] if rec else serial
+    return Response(content=cert, media_type="application/x-x509-ca-cert",
+                    headers={"Content-Disposition": f"attachment; filename={name}.crt"})
+
+
+@app.get("/api/certs/{serial}/key")
+async def api_cert_key(serial: str, user=Depends(require_user)):
+    rec = next((c for c in ca_ops.list_certs() if c["serial"] == serial), None)
+    key = ca_ops.get_cert_key_pem(serial)
+    name = rec["cn"] if rec else serial
+    return Response(content=key, media_type="application/x-pem-file",
+                    headers={"Content-Disposition": f"attachment; filename={name}.key"})
+
+
+@app.get("/api/certs/{serial}/chain")
+async def api_cert_chain(serial: str, user=Depends(require_user)):
+    """fullchain = cert + issuing root CA cert (for nginx fullchain.pem)."""
+    rec = next((c for c in ca_ops.list_certs() if c["serial"] == serial), None)
+    cert = ca_ops.get_cert_pem(serial)
+    chain = cert
+    if rec and rec.get("root_id"):
+        chain += ca_ops.root_cert(rec["root_id"])
+    name = rec["cn"] if rec else serial
+    return Response(content=chain, media_type="application/x-pem-file",
+                    headers={"Content-Disposition": f"attachment; filename={name}-fullchain.pem"})
 
 
 @app.get("/api/certs/{serial}/p12")
@@ -173,21 +239,20 @@ async def api_cert_p12(serial: str, user=Depends(require_user)):
 
 @app.post("/api/certs/{serial}/revoke")
 async def api_revoke_cert(request: Request, serial: str, user=Depends(require_user)):
-    body = await request.json()
-    return ca_ops.revoke_cert(serial, body.get("reason", "unspecified"))
+    body = await parse_body(request)
+    result = ca_ops.revoke_cert(serial, body.get("reason", "unspecified"))
+    if request.headers.get("HX-Request"):
+        return _render_dashboard(request, user)
+    return JSONResponse(result)
 
 
 # --- UI (HTMX-rendered) ----------------------------------------------------
 
 @app.get("/ui/root-form", response_class=HTMLResponse)
 async def root_form(request: Request, user=Depends(require_user)):
-    return tpl.TemplateResponse(request, "root_form.html", {"user": user})
+    return _render_root_form(request, user)
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, user=Depends(require_user)):
-    return tpl.TemplateResponse(request, "dashboard.html", {
-        "user": user,
-        "roots": ca_ops.list_roots(),
-        "certs": sorted(ca_ops.list_certs(), key=lambda c: c["not_after"], reverse=True),
-    })
+    return _render_dashboard(request, user)

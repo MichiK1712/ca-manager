@@ -45,7 +45,8 @@ def _passfile() -> str:
 # --- Root lifecycle -------------------------------------------------------
 
 def create_root(name: str, org: str, days: int = 3650,
-                key_type: str = "rsa", key_size: int = 4096) -> dict[str, Any]:
+                key_type: str = "rsa", key_size: int = 4096,
+                created_by: str = "") -> dict[str, Any]:
     root_id = uuid.uuid4().hex[:12]
     d = _root_dir(root_id)
     key_path = os.path.join(d, "ca-key.pem")
@@ -77,9 +78,12 @@ def create_root(name: str, org: str, days: int = 3650,
         "status": "active",
         "key_type": key_type,
         "key_size": key_size,
+        "created_by": created_by,
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     storage.add_root(root)
-    storage.log_audit({"action": "root_created", "root_id": root_id, "name": name})
+    storage.log_audit({"action": "root_created", "root_id": root_id, "name": name,
+                       "by": created_by})
     return root
 
 
@@ -121,7 +125,7 @@ def revoke_root(root_id: str, reason: str = "unspecified") -> dict[str, Any]:
 # --- Certificate issue / revoke ------------------------------------------
 
 def issue_cert(root_id: str, cn: str, sans: list[str], cert_type: str = "server",
-               days: int = 365) -> dict[str, Any]:
+               days: int = 365, created_by: str = "") -> dict[str, Any]:
     """Issue a server or client certificate signed by the given root."""
     d = _root_dir(root_id)
     serial_hex = secrets.token_hex(16)
@@ -172,10 +176,12 @@ def issue_cert(root_id: str, cn: str, sans: list[str], cert_type: str = "server"
         "not_before": _not_before(cert_path),
         "not_after": _not_after(cert_path),
         "status": "active",
+        "created_by": created_by,
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     storage.add_cert(rec)
     storage.log_audit({"action": "cert_issued", "cn": cn, "cert_type": cert_type,
-                       "serial": serial_hex, "root_id": root_id})
+                       "serial": serial_hex, "root_id": root_id, "by": created_by})
     return rec
 
 

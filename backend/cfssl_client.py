@@ -26,6 +26,8 @@ class CertRecord:
     status: str = "active"  # active | revoked | expired
     revoked_at: Optional[str] = None
     revoked_reason: str = ""
+    created_by: str = ""
+    created_at: str = ""
 
 
 class Storage:
