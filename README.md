@@ -23,6 +23,8 @@ Siehe **[PROTOCOL.md](./PROTOCOL.md)** für die vollständige Architektur.
    - `CA_KEY_PASSPHRASE` frei wählen (verschlüsselt die CA-Private-Keys).
    - SMTP- und OIDC-Werte eintragen (aus Vaultwarden).
 2. **Stack deployen** (Compose-Stack mit dieser `docker-compose.yml`).
+   Das UI-Image wird per GitHub Actions nach GHCR gebaut und von Portainer
+   nur noch gezogen (kein Build auf dem Host).
 3. **Authentik** konfigurieren (siehe `docs/authentik.md`).
 4. **NPM** Proxy-Host `ca.kubalek.local` → `http://<host>:8080` anlegen.
 

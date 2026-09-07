@@ -24,9 +24,7 @@ services:
       start_period: 10s
 
   ui:
-    build:
-      context: ./ui
-      dockerfile: Dockerfile
+    image: ghcr.io/michik1712/ca-manager-ui:latest
     container_name: ca-ui
     restart: unless-stopped
     depends_on:
@@ -67,15 +65,13 @@ services:
       start_period: 15s
 
   renewer:
-    build:
-      context: ./ui
-      dockerfile: Dockerfile
+    image: ghcr.io/michik1712/ca-manager-ui:latest
     container_name: ca-renewer
     restart: unless-stopped
     depends_on:
       ui:
         condition: service_healthy
-    command: ["python", "-m", "renewer"]
+    command: ["python", "-m", "backend.renewer"]
     environment:
       CFSSL_URL: ${CFSSL_URL:-http://cfssl:8888}
       CA_DATA_DIR: /var/lib/ca
