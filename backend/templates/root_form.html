@@ -1,0 +1,21 @@
+<div class="inline-form">
+  <h3>Neue Root-CA erstellen</h3>
+  <form hx-post="/api/roots" hx-target="#root-form" hx-swap="innerHTML" class="form-grid">
+    <label>Name
+      <input name="name" placeholder="Home Root" required>
+    </label>
+    <label>Organisation
+      <input name="org" value="MK">
+    </label>
+    <label>Gültigkeit (Jahre)
+      <input name="days" type="number" value="3650">
+    </label>
+    <label>Schlüsseltyp
+      <select name="key_type">
+        <option value="rsa">RSA (4096)</option>
+        <option value="ecdsa">ECDSA (P-256)</option>
+      </select>
+    </label>
+    <button class="btn" type="submit">Erstellen</button>
+  </form>
+</div>

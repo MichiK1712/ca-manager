@@ -1,0 +1,101 @@
+version: "3.8"
+
+# Private Multi-Root CA — deploy via Portainer Stack
+# Services: cfssl (multirootca) + ca-ui (FastAPI) + renewer (Scheduler)
+
+services:
+
+  cfssl:
+    image: cfssl/cfssl:latest
+    container_name: ca-cfssl
+    restart: unless-stopped
+    command: ["serve", "-address=0.0.0.0", "-port=8888", "-loglevel=1"]
+    environment:
+      - CA_HOME=/var/lib/ca
+    volumes:
+      - ca_data:/var/lib/ca
+    networks:
+      - ca_net
+    healthcheck:
+      test: ["CMD", "cfssl", "info", "-remote", "http://127.0.0.1:8888" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    container_name: ca-ui
+    restart: unless-stopped
+    depends_on:
+      cfssl:
+        condition: service_healthy
+    environment:
+      # OIDC (Authentik)
+      OIDC_ISSUER: ${OIDC_ISSUER:-https://idp.mkubalek.eu/application/o/ca-manager/}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-https://ca.kubalek.local/oidc/callback}
+      OIDC_SCOPE: ${OIDC_SCOPE:-openid profile email}
+      # CA
+      CFSSL_URL: ${CFSSL_URL:-http://cfssl:8888}
+      CA_DATA_DIR: /var/lib/ca
+      # SMTP (extern)
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+      SMTP_TO: ${SMTP_TO}
+      SMTP_TLS: ${SMTP_TLS:-starttls}
+      # Misc
+      SECRET_KEY: ${SECRET_KEY}
+      CA_KEY_PASSPHRASE: ${CA_KEY_PASSPHRASE}
+    volumes:
+      - ca_data:/var/lib/ca
+    networks:
+      - ca_net
+    ports:
+      - "${UI_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  renewer:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    container_name: ca-renewer
+    restart: unless-stopped
+    depends_on:
+      ui:
+        condition: service_healthy
+    command: ["python", "-m", "renewer"]
+    environment:
+      CFSSL_URL: ${CFSSL_URL:-http://cfssl:8888}
+      CA_DATA_DIR: /var/lib/ca
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+      SMTP_TO: ${SMTP_TO}
+      SMTP_TLS: ${SMTP_TLS:-starttls}
+      RENEW_ENABLED: ${RENEW_ENABLED:-true}
+      RENEW_DAYS_BEFORE: ${RENEW_DAYS_BEFORE:-30}
+    volumes:
+      - ca_data:/var/lib/ca
+    networks:
+      - ca_net
+
+volumes:
+  ca_data:
+
+networks:
+  ca_net:
+    driver: bridge
