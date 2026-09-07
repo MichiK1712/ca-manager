@@ -25,6 +25,7 @@
     <a href="#roots" class="nav-link active">Root-CAs</a>
     <a href="#certs" class="nav-link">Zertifikate</a>
     <a href="#issue" class="nav-link">Ausstellen</a>
+    <a href="#ssh" class="nav-link">SSH-CA</a>
   </nav>
 
   <div class="content" id="dash-body">
@@ -114,6 +115,98 @@
           {% endfor %}
         </tbody>
       </table>
+    </section>
+
+    <!-- ==== SSH-CA ==== -->
+    <section id="ssh" class="card">
+      <h2>SSH-CA (OpenSSH-Zertifikate)</h2>
+      <p class="muted">Für echtes SSH-Login. TrustedUserCAKeys auf dem Server setzen.</p>
+
+      <h3>SSH-CA anlegen</h3>
+      <form hx-post="/api/ssh-ca" hx-target="#dash-body" hx-swap="innerHTML" class="form-grid">
+        <label>Name
+          <input name="name" placeholder="SSH CA" required>
+        </label>
+        <label>Schlüsseltyp
+          <select name="key_type">
+            <option value="ed25519">ed25519</option>
+            <option value="rsa">RSA (4096)</option>
+            <option value="ecdsa">ECDSA (P-256)</option>
+          </select>
+        </label>
+        <label>Gültigkeit
+          <input name="validity" value="+3650d">
+        </label>
+        <button class="btn" type="submit">SSH-CA erstellen</button>
+      </form>
+
+      {% if ssh_ca %}
+      <h3>SSH-CA-Roots</h3>
+      <table class="table">
+        <thead><tr><th>Name</th><th>Typ</th><th>Erstellt von</th><th>Aktion</th></tr></thead>
+        <tbody>
+          {% for s in ssh_ca %}
+          <tr>
+            <td>{{ s.name }}</td>
+            <td>{{ s.key_type }}</td>
+            <td>{{ s.created_by or '—' }}</td>
+            <td class="actions">
+              <a class="btn btn-sm" href="/api/ssh-ca/{{ s.id }}/pub">Public Key</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+
+      {% if ssh_ca %}
+      <h3>Zertifikat signieren</h3>
+      <form hx-post="/api/ssh-certs" hx-target="#dash-body" hx-swap="innerHTML" class="form-grid">
+        <label>SSH-CA
+          <select name="root_id" required>
+            {% for s in ssh_ca %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>Typ
+          <select name="cert_type">
+            <option value="user">User</option>
+            <option value="host">Host</option>
+          </select>
+        </label>
+        <label>Principals (kommagetrennt: Usernames/Hosts)
+          <input name="principals" placeholder="michi,root" required>
+        </label>
+        <label>Public Key (eine Zeile)
+          <textarea name="public_key" rows="2" placeholder="ssh-ed25519 AAAA… user@host" required></textarea>
+        </label>
+        <label>Gültigkeit
+          <input name="validity" value="+8h">
+        </label>
+        <button class="btn" type="submit">Signieren</button>
+      </form>
+      {% endif %}
+
+      {% if ssh_certs %}
+      <h3>SSH-Zertifikate</h3>
+      <table class="table">
+        <thead><tr><th>Key-ID</th><th>Typ</th><th>Principals</th><th>Erstellt von</th><th>Status</th><th>Aktion</th></tr></thead>
+        <tbody>
+          {% for sc in ssh_certs %}
+          <tr>
+            <td class="mono">{{ sc.serial[:12] }}…</td>
+            <td>{{ sc.cert_type }}</td>
+            <td>{{ sc.principals|join(', ') }}</td>
+            <td>{{ sc.created_by or '—' }}</td>
+            <td><span class="badge {{ 'ok' if sc.status == 'active' else 'bad' }}">{{ sc.status }}</span></td>
+            <td class="actions">
+              <a class="btn btn-sm" href="/api/ssh-certs/{{ sc.serial }}/pub">cert.pub</a>
+              <button class="btn btn-sm btn-danger" hx-post="/api/ssh-certs/{{ sc.serial }}/revoke" hx-vals='{"reason":"unspecified"}' hx-confirm="Zertifikat widerrufen?" hx-target="#dash-body" hx-swap="innerHTML">Widerrufen</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
     </section>
   </div>
 </main>

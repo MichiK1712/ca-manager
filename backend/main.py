@@ -14,6 +14,7 @@ from . import ca_ops, oidc
 from .config import settings
 from .oidc import require_user
 from . import mailer
+from . import ssh_ca
 
 
 async def parse_body(request: Request) -> dict:
@@ -56,6 +57,8 @@ def _render_dashboard(request: Request, user: dict) -> HTMLResponse:
         "user": user,
         "roots": ca_ops.list_roots(),
         "certs": sorted(ca_ops.list_certs(), key=lambda c: c["not_after"], reverse=True),
+        "ssh_ca": ssh_ca.list_ssh_roots(),
+        "ssh_certs": sorted(ssh_ca.list_ssh_certs(), key=lambda c: c["created_at"], reverse=True),
     })
 
 
@@ -254,6 +257,80 @@ async def api_cert_p12(serial: str, user=Depends(require_user)):
 async def api_revoke_cert(request: Request, serial: str, user=Depends(require_user)):
     body = await parse_body(request)
     result = ca_ops.revoke_cert(serial, body.get("reason", "unspecified"))
+    if request.headers.get("HX-Request"):
+        return _render_dashboard(request, user)
+    return JSONResponse(result)
+
+
+# --- SSH-CA routes --------------------------------------------------------
+
+@app.get("/api/ssh-ca")
+async def api_ssh_ca_list(user=Depends(require_user)):
+    return ssh_ca.list_ssh_roots()
+
+
+@app.post("/api/ssh-ca")
+async def api_ssh_ca_create(request: Request, user=Depends(require_user)):
+    body = await parse_body(request)
+    try:
+        rec = ssh_ca.create_ssh_root(
+            name=body.get("name", "SSH CA"),
+            key_type=body.get("key_type", "ed25519"),
+            validity=body.get("validity", "+3650d"),
+            created_by=user_label(user),
+        )
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    if request.headers.get("HX-Request"):
+        return _render_dashboard(request, user)
+    return JSONResponse(rec)
+
+
+@app.get("/api/ssh-ca/{root_id}/pub")
+async def api_ssh_ca_pub(root_id: str, user=Depends(require_user)):
+    pub = ssh_ca.ssh_ca_public(root_id)
+    return Response(content=pub, media_type="text/plain",
+                    headers={"Content-Disposition": f"attachment; filename=ssh-ca-{root_id}.pub"})
+
+
+@app.get("/api/ssh-certs")
+async def api_ssh_certs_list(user=Depends(require_user)):
+    return ssh_ca.list_ssh_certs()
+
+
+@app.post("/api/ssh-certs")
+async def api_ssh_cert_sign(request: Request, user=Depends(require_user)):
+    body = await parse_body(request)
+    principals = [p.strip() for p in str(body.get("principals", "")).split(",") if p.strip()]
+    if not principals:
+        raise HTTPException(400, "Mindestens ein Principal (Username/Servername) nötig")
+    try:
+        rec = ssh_ca.sign_ssh_cert(
+            root_id=body["root_id"],
+            public_key=body["public_key"],
+            principals=principals,
+            cert_type=body.get("cert_type", "user"),
+            validity=body.get("validity", "+8h"),
+            created_by=user_label(user),
+        )
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    if request.headers.get("HX-Request"):
+        return _render_dashboard(request, user)
+    return JSONResponse(rec)
+
+
+@app.get("/api/ssh-certs/{serial}/pub")
+async def api_ssh_cert_pub(serial: str, user=Depends(require_user)):
+    pub = ssh_ca.ssh_cert_public(serial)
+    return Response(content=pub, media_type="text/plain",
+                    headers={"Content-Disposition": f"attachment; filename={serial}-cert.pub"})
+
+
+@app.post("/api/ssh-certs/{serial}/revoke")
+async def api_ssh_cert_revoke(request: Request, serial: str, user=Depends(require_user)):
+    body = await parse_body(request)
+    result = ssh_ca.revoke_ssh_cert(serial, body.get("reason", "unspecified"))
     if request.headers.get("HX-Request"):
         return _render_dashboard(request, user)
     return JSONResponse(result)
