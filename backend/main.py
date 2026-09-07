@@ -12,7 +12,18 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import ca_ops, oidc
 from .config import settings
+from .config import settings
 from .oidc import require_user
+
+
+async def parse_body(request: Request) -> dict:
+    """Parse request body as JSON or form-encoded (HTMX sends form-encoded)."""
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        return await request.json()
+    # form-encoded
+    form = await request.form()
+    return {k: v for k, v in form.items()}
 
 BASE = os.path.dirname(__file__)
 STATIC = os.path.join(BASE, "static")
@@ -89,7 +100,7 @@ async def api_roots(user=Depends(require_user)):
 
 @app.post("/api/roots")
 async def api_create_root(request: Request, user=Depends(require_user)):
-    body = await request.json()
+    body = await parse_body(request)
     try:
         root = ca_ops.create_root(
             name=body["name"],
@@ -117,7 +128,7 @@ async def api_renew_root(root_id: str, user=Depends(require_user)):
 
 @app.post("/api/roots/{root_id}/revoke")
 async def api_revoke_root(request: Request, root_id: str, user=Depends(require_user)):
-    body = await request.json()
+    body = await parse_body(request)
     return ca_ops.revoke_root(root_id, body.get("reason", "unspecified"))
 
 
@@ -128,10 +139,7 @@ async def api_certs(user=Depends(require_user)):
 
 @app.post("/api/certs")
 async def api_issue(request: Request, user=Depends(require_user)):
-    body = await request.json()
-    # HTMX sends form-encoded unless header set; normalize both.
-    if isinstance(body, str):
-        body = dict(x.split("=", 1) for x in body.split("&") if "=" in x)
+    body = await parse_body(request)
     sans_raw = body.get("sans", "")
     sans = [s.strip() for s in str(sans_raw).split(",") if s.strip()]
     try:
