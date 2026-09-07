@@ -13,6 +13,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from . import ca_ops, oidc
 from .config import settings
 from .oidc import require_user
+from . import mailer
 
 
 async def parse_body(request: Request) -> dict:
@@ -113,6 +114,18 @@ async def me(user=Depends(require_user)):
     return {"preferred_username": user.get("preferred_username"),
             "name": user.get("name"),
             "email": user.get("email")}
+
+@app.post("/api/test-email")
+async def api_test_email(user=Depends(require_user)):
+    """Send a test email through the configured SMTP relay."""
+    ok, detail = mailer.send_email_detailed(
+        "[CA] Test-E-Mail",
+        "Dies ist eine Test-E-Mail des CA-Managers.\n"
+        "SMTP-Versand funktioniert.\n\n(ca.kubalek.local)",
+    )
+    if not ok:
+        raise HTTPException(502, f"SMTP-Versand fehlgeschlagen: {detail}")
+    return {"status": "sent"}
 
 
 @app.get("/api/roots")

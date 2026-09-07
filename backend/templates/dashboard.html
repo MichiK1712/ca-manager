@@ -14,6 +14,7 @@
     <span class="brand-title">CA-Manager</span>
   </div>
   <div class="topbar-right">
+    <button class="btn btn-ghost" hx-post="/api/test-email" hx-swap="none" id="test-mail-btn">Test-E-Mail</button>
     <span class="user-label">{{ user.preferred_username or user.name or user.email }}</span>
     <a href="/logout" class="btn btn-ghost">Abmelden</a>
   </div>
@@ -89,7 +90,8 @@
     <!-- ==== CERTS ==== -->
     <section id="certs" class="card">
       <h2>Zertifikate</h2>
-      <table class="table">
+      <input id="cert-search" type="search" placeholder="Suchen (CN, Serien-Nr., Typ…)" class="search">
+      <table class="table" id="certs-table">
         <thead><tr><th>CN</th><th>Typ</th><th>Serien-Nr.</th><th>Gültig bis</th><th>Erstellt von</th><th>Status</th><th>Aktionen</th></tr></thead>
         <tbody>
           {% for c in certs %}
@@ -114,5 +116,31 @@
     </section>
   </div>
 </main>
+
+<script>
+  (function () {
+    var input = document.getElementById('cert-search');
+    if (!input) return;
+    input.addEventListener('input', function () {
+      var q = this.value.trim().toLowerCase();
+      var rows = document.querySelectorAll('#certs-table tbody tr');
+      rows.forEach(function (tr) {
+        var text = tr.textContent.toLowerCase();
+        tr.style.display = (!q || text.indexOf(q) !== -1) ? '' : 'none';
+      });
+    });
+  })();
+
+  // Test-E-Mail feedback
+  document.body.addEventListener('htmx:afterRequest', function (evt) {
+    if (evt.detail.elt && evt.detail.elt.id === 'test-mail-btn') {
+      var ok = evt.detail.xhr.status >= 200 && evt.detail.xhr.status < 300;
+      var label = ok ? 'E-Mail gesendet ✓' : 'Fehler beim Versand ✗';
+      var btn = evt.detail.elt;
+      btn.textContent = label;
+      setTimeout(function () { btn.textContent = 'Test-E-Mail'; }, 3000);
+    }
+  });
+</script>
 </body>
 </html>
