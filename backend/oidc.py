@@ -1,16 +1,19 @@
 """OIDC authentication via Authentik.
 
-Minimal OIDC Authorization Code flow with PKCE, validated against the
-provider's JWKS endpoint. Exposes a FastAPI dependency for protected routes.
+OIDC Authorization Code flow with PKCE (S256). Token validation uses PyJWT's
+PyJWKClient against the provider's JWKS endpoint, which handles the `kid`
+lookup and signature verification correctly.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import secrets
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 import jwt
+from jwt import PyJWKClient
 from fastapi import HTTPException, Request
 
 from .config import settings
@@ -19,14 +22,11 @@ from .config import settings
 class OIDC:
     def __init__(self):
         self._config: dict[str, Any] = {}
-        self._jwks: dict[str, Any] = {}
+        self._jwks_client: PyJWKClient | None = None
 
     async def _discovery(self) -> dict[str, Any]:
         if self._config:
             return self._config
-        # Authentik issuer pattern:
-        #   https://idp.mkubalek.eu/application/o/<slug>/
-        # Discovery endpoints hang off that issuer base.
         base = settings.oidc_issuer.rstrip("/")
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.get(f"{base}/.well-known/openid-configuration")
@@ -34,22 +34,18 @@ class OIDC:
             self._config = r.json()
         return self._config
 
-    async def _jwks_data(self) -> dict[str, Any]:
-        if self._jwks:
-            return self._jwks
-        cfg = await self._discovery()
-        async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.get(cfg["jwks_uri"])
-            r.raise_for_status()
-            self._jwks = r.json()
-        return self._jwks
+    def _get_jwks_client(self) -> PyJWKClient:
+        if self._jwks_client is None:
+            self._jwks_client = PyJWKClient(
+                settings.oidc_issuer.rstrip("/") + "/jwks/",
+                cache_keys=True,
+            )
+        return self._jwks_client
 
     async def authorization_url(self, state: str, pkce: str) -> str:
         cfg = await self._discovery()
         challenge = hashlib.sha256(pkce.encode()).digest()
-        challenge_b64 = (
-            __import__("base64").urlsafe_b64encode(challenge).rstrip(b"=").decode()
-        )
+        challenge_b64 = base64.urlsafe_b64encode(challenge).rstrip(b"=").decode()
         params = {
             "response_type": "code",
             "client_id": settings.oidc_client_id,
@@ -64,42 +60,39 @@ class OIDC:
 
     async def exchange_code(self, code: str, pkce: str) -> dict[str, Any]:
         cfg = await self._discovery()
+        # Authentik supports client_secret_post. Send code_verifier for PKCE.
+        data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": settings.oidc_redirect_uri,
+            "client_id": settings.oidc_client_id,
+            "client_secret": settings.oidc_client_secret,
+            "code_verifier": pkce,
+        }
         async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.post(
-                cfg["token_endpoint"],
-                data={
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "redirect_uri": settings.oidc_redirect_uri,
-                    "client_id": settings.oidc_client_id,
-                    "client_secret": settings.oidc_client_secret,
-                    "code_verifier": pkce,
-                },
-            )
-            r.raise_for_status()
+            r = await client.post(cfg["token_endpoint"], data=data)
+            if r.status_code != 200:
+                # Surface the provider's error description (no secrets) for diagnosis.
+                try:
+                    body = r.json()
+                    detail = body.get("error_description") or body.get("error") or str(r.status_code)
+                except Exception:
+                    detail = f"{r.status_code}: {r.text[:200]}"
+                raise HTTPException(status_code=401, detail=f"Token exchange failed: {detail}")
             return r.json()
 
     async def validate_id_token(self, id_token: str) -> dict[str, Any]:
         cfg = await self._discovery()
-        jwks = await self._jwks_data()
-        # JWT header not decoded for alg; trust the key from JWKS by kid.
-        unverified = jwt.get_unverified_header(id_token)
-        kid = unverified.get("kid")
-        key = None
-        for jwk in jwks.get("keys", []):
-            if jwk.get("kid") == kid:
-                from jwt.algorithms import RSAAlgorithm
-                key = RSAAlgorithm.from_jwk(jwk)
-                break
-        if key is None:
-            raise HTTPException(status_code=401, detail="Unknown signing key")
+        jwks_client = self._get_jwks_client()
+        alg = jwt.get_unverified_header(id_token).get("alg", "RS256")
+        signing_key = jwks_client.get_signing_key_from_jwt(id_token)
         payload = jwt.decode(
             id_token,
-            key,
-            algorithms=[cfg.get("id_token_signing_alg_values_supported", ["RS256"])[0]],
+            signing_key.key,
+            algorithms=[alg],
             audience=settings.oidc_client_id,
+            options={"verify_exp": True},
         )
-        # Tolerate trailing-slash variance on the issuer claim.
         iss = (payload.get("iss") or "").rstrip("/")
         if iss != settings.oidc_issuer.rstrip("/"):
             raise HTTPException(status_code=401, detail="Issuer mismatch")
@@ -116,6 +109,8 @@ async def require_user(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
         return await oidc.validate_id_token(token)
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
 
